@@ -3,6 +3,7 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   schedule:
+    # S'exécute automatiquement toutes les 6 heures
     - cron: "0 */6 * * *"
 
 jobs:
@@ -23,7 +24,7 @@ jobs:
 
       - name: Prepare build context
         run: |
-          # 1. Écrase le .dockerignore restrictif pour inclure src/ et les fichiers nécessaires
+          # 1. Écrase le .dockerignore restrictif
           echo -e "node_modules\n.git\n.github" > .dockerignore
 
           # 2. Génère package-lock.json s'il est absent du dépôt
@@ -31,14 +32,23 @@ jobs:
             npm install --package-lock-only --ignore-scripts
           fi
 
-          # 3. Patch le Dockerfile pour installer Python et build-essential dans le stage builder
+          # 3. Patch du Dockerfile :
+          # - Ajoute Python et build-essential dans le builder pour compiler les modules natifs
+          # - Dans le runner, copie directement node_modules depuis le builder au lieu de relancer npm ci
           node -e '
             const fs = require("fs");
             let df = fs.readFileSync("Dockerfile", "utf8");
+
             df = df.replace(
               "RUN npm ci",
               "RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 build-essential && rm -rf /var/lib/apt/lists/*\nRUN npm ci"
             );
+
+            df = df.replace(
+              "RUN npm ci --omit=dev",
+              "COPY --from=builder /app/node_modules ./node_modules"
+            );
+
             fs.writeFileSync("Dockerfile", df);
           '
 

@@ -3,7 +3,6 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   schedule:
-    # S'exécute automatiquement toutes les 6 heures
     - cron: "0 */6 * * *"
 
 jobs:
@@ -24,17 +23,12 @@ jobs:
 
       - name: Prepare build context
         run: |
-          # 1. Écrase le .dockerignore restrictif
           echo -e "node_modules\n.git\n.github" > .dockerignore
 
-          # 2. Génère package-lock.json s'il est absent du dépôt
           if [ ! -f package-lock.json ]; then
             npm install --package-lock-only --ignore-scripts
           fi
 
-          # 3. Patch du Dockerfile :
-          # - Ajoute Python et build-essential dans le builder pour compiler les modules natifs
-          # - Dans le runner, copie directement node_modules depuis le builder au lieu de relancer npm ci
           node -e '
             const fs = require("fs");
             let df = fs.readFileSync("Dockerfile", "utf8");
@@ -76,14 +70,20 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-
 
+      # Émulateur requis pour construire l'image ARM64 sur les serveurs x86 de GitHub
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Build multi-plateforme : PC et Raspberry Pi
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

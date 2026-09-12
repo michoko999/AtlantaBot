@@ -1,0 +1,68 @@
+name: Build and Publish Docker Image
+
+on:
+  workflow_dispatch:
+  schedule:
+    # S'exécute automatiquement toutes les 6 heures
+    - cron: "0 */6 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Permet d'accéder aux secrets configurés dans l'Environment "docker"
+    environment: docker
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # 1. Récupère directement le code source d'AtlantaBot (dépôt upstream)
+      - name: Checkout AtlantaBot upstream
+        uses: actions/checkout@v4
+        with:
+          repository: Androz2091/AtlantaBot
+          ref: master
+
+      # 2. Connexion à Docker Hub avec les secrets de l'environnement "docker"
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3. Connexion au GitHub Container Registry (GHCR)
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4. Génération des tags (latest et le SHA du commit upstream)
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/atlantabot
+            ghcr.io/${{ github.repository_owner }}/atlantabot
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+
+      # 5. Préparation du moteur de build Docker
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 6. Build et publication simultanée vers Docker Hub et GHCR
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
